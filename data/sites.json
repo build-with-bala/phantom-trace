@@ -1,0 +1,64 @@
+{
+  "github": {
+    "url": "https://github.com/{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "development",
+    "api": "https://api.github.com/users/{}"
+  },
+  "twitter": {
+    "url": "https://x.com/{}",
+    "check_type": "response_body",
+    "valid_pattern": "screen_name",
+    "category": "social"
+  },
+  "instagram": {
+    "url": "https://www.instagram.com/{}/",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "social"
+  },
+  "reddit": {
+    "url": "https://www.reddit.com/user/{}/",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "social",
+    "api": "https://www.reddit.com/user/{}/about.json"
+  },
+  "linkedin": {
+    "url": "https://www.linkedin.com/in/{}/",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "professional"
+  },
+  "medium": {
+    "url": "https://medium.com/@{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "blog"
+  },
+  "devto": {
+    "url": "https://dev.to/{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "development"
+  },
+  "youtube": {
+    "url": "https://www.youtube.com/@{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "video"
+  },
+  "tiktok": {
+    "url": "https://www.tiktok.com/@{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "video"
+  },
+  "twitch": {
+    "url": "https://www.twitch.tv/{}",
+    "check_type": "status_code",
+    "valid_codes": [200],
+    "category": "gaming"
+  }
+}
