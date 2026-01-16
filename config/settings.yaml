@@ -1,0 +1,23 @@
+general:
+  max_concurrent: 80
+  request_timeout: 15
+  retries: 2
+  rate_limit_per_domain: 3
+
+proxy:
+  enabled: false
+  tor: false
+  tor_port: 9050
+  custom_proxies: []
+
+output:
+  default_format: "all"
+  save_avatars: true
+
+modules:
+  username_search: true
+  email_search: true
+  phone_search: true
+  breach_check: true
+  social_graph: true
+  alias_generation: true
