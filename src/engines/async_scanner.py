@@ -1,6 +1,7 @@
-"""High-performance async HTTP engine with rate limiting."""
+"""High-performance async HTTP engine with rate limiting and API enrichment."""
 
 import asyncio
+import re
 import random
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,16 @@ class RateLimiter:
             self._tokens[domain] -= 1.0
 
 
+METADATA_PATTERNS = {
+    "bio": [r'"biography":"(.*?)"', r'"description":"(.*?)"', r'"bio":"(.*?)"'],
+    "location": [r'"location":"(.*?)"', r'"country":"(.*?)"'],
+    "followers": [r'"follower_count":(\d+)', r'"followers_count":(\d+)'],
+    "joined": [r'"created_at":"(.*?)"', r'"created":"(.*?)"'],
+    "company": [r'"company":"(.*?)"'],
+    "repos": [r'"public_repos":(\d+)'],
+}
+
+
 class AsyncScanner:
     def __init__(self, max_concurrent: int = 80, timeout: int = 15, retries: int = 2, proxy: str | None = None):
         self.max_concurrent = max_concurrent
@@ -50,10 +61,29 @@ class AsyncScanner:
             "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "DNT": "1",
-            "Connection": "keep-alive",
         }
 
-    async def check_site(self, site_name: str, config: dict, username: str) -> SiteResult:
+    def _extract_metadata(self, body: str, fields: list[str]) -> dict[str, str]:
+        metadata = {}
+        for field_name in fields:
+            if field_name in METADATA_PATTERNS:
+                for pattern in METADATA_PATTERNS[field_name]:
+                    match = re.search(pattern, body, re.IGNORECASE)
+                    if match:
+                        metadata[field_name] = match.group(1)
+                        break
+        return metadata
+
+    async def _fetch_api(self, session: aiohttp.ClientSession, url: str) -> dict | None:
+        try:
+            async with session.get(url, headers={"User-Agent": self._ua.random, "Accept": "application/json"}) as resp:
+                if resp.status == 200:
+                    return await resp.json(content_type=None)
+        except Exception:
+            pass
+        return None
+
+    async def check_site(self, session: aiohttp.ClientSession, site_name: str, config: dict, username: str) -> SiteResult:
         url = config["url"].format(username)
         check_type = CheckType(config.get("check_type", "status_code"))
         result = SiteResult(site=site_name, url=url, category=config.get("category", "other"), username=username)
@@ -65,20 +95,28 @@ class AsyncScanner:
 
             for attempt in range(self.retries + 1):
                 try:
-                    async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                        async with session.get(url, headers=self._headers(), proxy=self.proxy, allow_redirects=True, ssl=False) as resp:
-                            body = await resp.text(errors="ignore")
-                            if check_type == CheckType.STATUS_CODE:
-                                result.found = resp.status in config.get("valid_codes", [200])
-                            elif check_type == CheckType.RESPONSE_BODY:
-                                valid = config.get("valid_pattern", "")
-                                invalid = config.get("invalid_pattern", "")
-                                if invalid and invalid in body:
-                                    result.found = False
-                                elif valid and valid in body:
-                                    result.found = True
-                            result.status_code = resp.status
-                            break
+                    async with session.get(url, headers=self._headers(), proxy=self.proxy, allow_redirects=True, ssl=False) as resp:
+                        body = await resp.text(errors="ignore")
+                        if check_type == CheckType.STATUS_CODE:
+                            result.found = resp.status in config.get("valid_codes", [200])
+                        elif check_type == CheckType.RESPONSE_BODY:
+                            valid = config.get("valid_pattern", "")
+                            invalid = config.get("invalid_pattern", "")
+                            if invalid and invalid in body:
+                                result.found = False
+                            elif valid and valid in body:
+                                result.found = True
+                        result.status_code = resp.status
+
+                        # Extract metadata if found
+                        if result.found and "extract" in config:
+                            result.metadata = self._extract_metadata(body, config["extract"])
+
+                        # Fetch API data if available
+                        if result.found and "api" in config:
+                            result.api_data = await self._fetch_api(session, config["api"].format(username))
+                        break
+
                 except asyncio.TimeoutError:
                     if attempt == self.retries:
                         result.error = "timeout"
@@ -92,11 +130,13 @@ class AsyncScanner:
         return result
 
     async def scan_all(self, username: str, sites: dict, callback=None) -> list[SiteResult]:
-        tasks = [self.check_site(name, config, username) for name, config in sites.items()]
-        results = []
-        for coro in asyncio.as_completed(tasks):
-            result = await coro
-            results.append(result)
-            if callback:
-                callback(result)
-        return results
+        connector = aiohttp.TCPConnector(limit=self.max_concurrent, limit_per_host=10, ssl=False)
+        async with aiohttp.ClientSession(connector=connector, timeout=self.timeout) as session:
+            tasks = [self.check_site(session, name, config, username) for name, config in sites.items()]
+            results = []
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                results.append(result)
+                if callback:
+                    callback(result)
+            return results
