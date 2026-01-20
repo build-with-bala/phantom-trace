@@ -1,0 +1,13 @@
+[project]
+name = "phantom-trace"
+version = "1.0.0"
+description = "Advanced OSINT people search engine with AI agent orchestration"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[project.scripts]
+phantom = "phantom:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
