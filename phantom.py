@@ -99,10 +99,11 @@ def cli():
 @click.option("--proxy", default=None)
 @click.option("--timeout", default=15, type=int)
 @click.option("--threads", default=80, type=int)
-def username(target, output, fmt, aliases, category, proxy, timeout, threads):
+@click.option("--ai", is_flag=True, help="Enable AI analysis")
+def username(target, output, fmt, aliases, category, proxy, timeout, threads, ai):
     """Search by username across 40+ platforms."""
     console.print(BANNER)
-    asyncio.run(_scan_username(target, output, fmt, aliases, category, proxy, timeout, threads))
+    asyncio.run(_scan_username(target, output, fmt, aliases, category, proxy, timeout, threads, ai))
 
 
 @cli.command()
@@ -135,7 +136,7 @@ def name(first_name, last_name, birth_year, output, fmt):
     asyncio.run(_scan_name(first_name, last_name, birth_year, output, fmt))
 
 
-async def _scan_username(target, output, fmt, scan_aliases, category, proxy, timeout, threads):
+async def _scan_username(target, output, fmt, scan_aliases, category, proxy, timeout, threads, ai=False):
     sites = load_sites()
     if category:
         sites = {k: v for k, v in sites.items() if v.get("category") == category}
@@ -240,3 +241,27 @@ def _save(profile, target, output, fmt):
 
 if __name__ == "__main__":
     cli()
+
+# AI analysis integration
+async def _run_ai_analysis(profile: PersonProfile):
+    """Run AI-powered analysis on the profile."""
+    from src.ai.router import create_default_router
+    from src.ai.analyzer import ProfileAnalyzer
+
+    console.print("\n[bold yellow]Running AI analysis...[/bold yellow]")
+    router = create_default_router()
+    status = await router.check_availability()
+
+    available = [k for k, v in status.items() if v]
+    if not available:
+        console.print("[red]No AI providers available. Install Ollama or set API keys.[/red]")
+        return
+
+    console.print(f"[dim]Using providers: {', '.join(available)}[/dim]")
+
+    analyzer = ProfileAnalyzer(router)
+    try:
+        result = await analyzer.analyze_profile(profile)
+        console.print(Panel(result["analysis"], title=f"[bold]AI Analysis ({result['model']})[/bold]", border_style="yellow"))
+    except Exception as e:
+        console.print(f"[red]AI analysis failed: {e}[/red]")
