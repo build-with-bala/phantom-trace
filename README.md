@@ -1,103 +1,127 @@
 # Phantom Trace
 
-Advanced OSINT people search engine with AI-powered analysis. Goes beyond basic username enumeration with multi-vector intelligence, cross-platform correlation, and intelligent agent orchestration using both local (Ollama) and cloud AI models.
+Advanced OSINT people search engine with multi-agent orchestration. Uses both local (Ollama) and cloud AI models for intelligent analysis, chain-of-thought reasoning, and automated investigation planning.
 
-## What Makes It Different
+## Features
 
-| Feature | Sherlock | Phantom Trace |
-|---------|---------|---------------|
-| Username search | ✓ | ✓ (42+ sites) |
-| Email OSINT | ✗ | ✓ |
-| Phone OSINT | ✗ | ✓ |
-| Real name search | ✗ | ✓ |
-| Alias generation | ✗ | ✓ (leet, affixes, name patterns) |
-| Cross-platform correlation | ✗ | ✓ |
-| Metadata extraction | ✗ | ✓ (bio, location, followers) |
-| Social graph building | ✗ | ✓ |
-| Breach checking | ✗ | ✓ (HIBP) |
-| AI profile analysis | ✗ | ✓ (local + cloud models) |
-| Agent orchestration | ✗ | ✓ (multi-agent pipeline) |
-| Confidence scoring | ✗ | ✓ |
-| HTML reports | ✗ | ✓ (interactive dashboard) |
-| Async engine | ✗ | ✓ (80 concurrent) |
-| Rate limiting | ✗ | ✓ (per-domain token bucket) |
+### Core OSINT
+- **42+ platform scanning** with async engine (80 concurrent requests)
+- **Multi-vector search**: username, email, phone, real name
+- **Alias generation**: leet speak, separators, name patterns, affixes
+- **Metadata extraction**: bio, location, followers, join dates
+- **Cross-platform correlation**: social graph building
+- **Breach checking**: Have I Been Pwned integration
+- **Confidence scoring**: Evidence-based reliability assessment
 
-## Disclaimer
+### AI Intelligence
+- **Local-first model routing**: Ollama → Groq → OpenAI → Anthropic
+- **Profile analysis**: AI-powered identity assessment
+- **Chain-of-thought reasoning**: Multi-hypothesis evaluation
+- **Investigation planning**: Automated next-step generation
+- **Alias correlation**: AI determines if profiles match
 
-**For authorized security research and OSINT investigations only.** Do not use to stalk, harass, or invade privacy. Comply with applicable laws.
+### Agent Orchestration
+- **Pipeline modes**: quick, standard, deep, stealth
+- **Specialized agents**: ReconAgent, EnrichmentAgent, AnalysisAgent, ReasoningAgent, DeepReconAgent, ReportAgent
+- **Conditional execution**: Stages run based on findings
+- **Parallel execution**: Independent agents run concurrently
+- **Fault tolerance**: Pipeline continues if non-critical agents fail
 
 ## Quick Start
 
 ```bash
 pip install -r requirements.txt
 
-# Basic username search
-python phantom.py username johndoe
+# Quick scan (no AI)
+python phantom.py username johndoe --mode quick
 
-# With AI analysis (requires Ollama or API key)
-python phantom.py username johndoe --ai
+# Standard with AI analysis
+python phantom.py username johndoe --mode standard
 
-# Email search
+# Deep investigation (aliases + reasoning)
+python phantom.py username johndoe --mode deep
+
+# Stealth mode (slow + local AI only)
+python phantom.py username johndoe --mode stealth
+
+# Search by email
 python phantom.py email johndoe@gmail.com
 
-# Phone search
-python phantom.py phone "+1234567890"
-
-# Name search
+# Search by name
 python phantom.py name John Doe --birth-year 1995
+
+# Check AI providers
+python phantom.py providers
 ```
 
-## AI Providers
+## Pipeline Modes
 
-Phantom Trace uses a local-first model routing strategy:
-
-| Priority | Provider | Model | Cost | Privacy |
-|----------|----------|-------|------|---------|
-| 1 | Ollama (local) | llama3.2 | Free | Full |
-| 2 | Groq | llama-3.1-70b | Low | Moderate |
-| 3 | OpenAI | gpt-4o-mini | Medium | Low |
-| 4 | Anthropic | claude-sonnet | Medium | Low |
-
-```bash
-# Install Ollama for free local AI
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull llama3.2
-
-# Or set API keys
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-export GROQ_API_KEY=gsk_...
-```
+| Mode | Agents | AI | Speed | Depth |
+|------|--------|----|----- -|-------|
+| quick | Recon → Enrich → Report | No | Fast | Surface |
+| standard | Recon → Enrich → Analysis → Report | Yes | Medium | Moderate |
+| deep | Recon → Enrich → DeepRecon → Reasoning → Analysis → Report | Yes (CoT) | Slow | Maximum |
+| stealth | Recon(slow) → Enrich → Reasoning(local) → Report(JSON) | Local only | Slowest | Moderate |
 
 ## Architecture
 
 ```
 phantom-trace/
-├── phantom.py                     # CLI entry point
+├── phantom.py                         # CLI entry point
 ├── src/
-│   ├── models.py                  # Data models
-│   ├── config.py                  # Configuration
+│   ├── models.py                      # Data models
+│   ├── config.py                      # YAML configuration
 │   ├── engines/
-│   │   ├── scanner.py             # Sync scanner (legacy)
-│   │   └── async_scanner.py       # Async engine with rate limiting
+│   │   ├── scanner.py                 # Sync scanner (legacy)
+│   │   └── async_scanner.py           # Async engine + rate limiting
 │   ├── modules/
-│   │   ├── alias_generator.py     # Username permutations
-│   │   ├── email_recon.py         # Email OSINT
-│   │   ├── phone_recon.py         # Phone OSINT
-│   │   ├── breach_check.py        # HIBP integration
-│   │   ├── social_graph.py        # Graph builder
-│   │   └── metadata_extractor.py  # Cross-platform correlation
+│   │   ├── alias_generator.py         # Username permutation engine
+│   │   ├── email_recon.py             # Email OSINT
+│   │   ├── phone_recon.py             # Phone number intelligence
+│   │   ├── breach_check.py            # HIBP integration
+│   │   ├── social_graph.py            # Cross-platform graph
+│   │   └── metadata_extractor.py      # Profile correlation
 │   ├── ai/
-│   │   ├── base.py                # Provider abstractions
-│   │   ├── ollama_provider.py     # Local Ollama models
-│   │   ├── api_provider.py        # OpenAI/Anthropic/Groq
-│   │   ├── router.py              # Model routing + fallback
-│   │   └── analyzer.py            # Profile analysis
+│   │   ├── base.py                    # Provider abstractions
+│   │   ├── ollama_provider.py         # Local Ollama models
+│   │   ├── api_provider.py            # OpenAI / Anthropic / Groq
+│   │   ├── router.py                  # Intelligent model routing
+│   │   └── analyzer.py               # AI profile analysis
+│   ├── agents/
+│   │   ├── base.py                    # Agent framework + task system
+│   │   ├── orchestrator.py            # Pipeline orchestration engine
+│   │   ├── pipelines.py              # Pre-built pipeline configs
+│   │   ├── recon_agent.py            # Platform scanning agent
+│   │   ├── enrichment_agent.py       # Metadata enrichment agent
+│   │   ├── analysis_agent.py         # AI analysis agent
+│   │   ├── reasoning_agent.py        # Chain-of-thought reasoning
+│   │   ├── deep_recon_agent.py       # Alias follow-up agent
+│   │   └── report_agent.py           # Report compilation agent
 │   └── exporters/
-│       ├── json_export.py         # JSON reports
-│       └── html_export.py         # HTML dashboard
-├── data/sites.json                # 42+ platform configs
-├── config/settings.yaml           # Runtime config
-├── tests/                         # Test suite
-└── .env.example                   # Environment template
+│       ├── json_export.py            # JSON reports
+│       └── html_export.py            # Interactive HTML dashboard
+├── data/sites.json                    # 42+ platform configurations
+├── config/settings.yaml               # Runtime configuration
+├── tests/                             # Test suite
+├── .env.example                       # API key template
+└── requirements.txt
 ```
+
+## AI Provider Priority
+
+| # | Provider | Model | Cost | Privacy | Use Case |
+|---|----------|-------|------|---------|----------|
+| 1 | Ollama | llama3.2 | Free | Full | Default for all analysis |
+| 2 | Groq | llama-3.1-70b | $0 (free tier) | Moderate | Fast fallback |
+| 3 | OpenAI | gpt-4o-mini | ~$0.15/1M | Low | Complex reasoning |
+| 4 | Anthropic | claude-sonnet | ~$3/1M | Low | Deep analysis |
+
+## Disclaimer
+
+**For authorized security research, penetration testing, and OSINT investigations only.**
+Do not use to stalk, harass, or invade anyone's privacy.
+Comply with all applicable laws and platform terms of service.
+
+## License
+
+MIT

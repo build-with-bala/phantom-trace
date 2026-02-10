@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phantom Trace - Advanced OSINT People Search Engine."""
+"""Phantom Trace - Advanced OSINT People Search Engine with Agent Orchestration."""
 
 import asyncio
 import json
@@ -12,13 +12,10 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from src.engines.async_scanner import AsyncScanner
+from src.agents.pipelines import quick_scan_pipeline, standard_pipeline, deep_pipeline, stealth_pipeline, create_context
+from src.agents.base import AgentContext
 from src.models import PersonProfile, SiteResult
-from src.modules.alias_generator import generate_aliases, generate_from_real_name
-from src.modules.metadata_extractor import MetadataExtractor, calculate_confidence
-from src.modules.social_graph import SocialGraphBuilder
-from src.exporters.json_export import export_json
-from src.exporters.html_export import export_html
+from src.modules.alias_generator import generate_from_real_name
 
 console = Console()
 
@@ -35,233 +32,143 @@ BANNER = """[bold red]
               ██║   ██╔══██╗██╔══██║██║     ██╔══╝
               ██║   ██║  ██║██║  ██║╚██████╗███████╗
               ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚══════╝[/bold white]
-[dim]            Advanced OSINT People Search Engine[/dim]
+[dim]      Advanced OSINT People Search with Agent Orchestration[/dim]
 """
 
 
-def load_sites() -> dict:
-    path = Path(__file__).parent / "data" / "sites.json"
-    with open(path) as f:
-        return json.load(f)
+def display_findings(context: AgentContext):
+    """Display findings from the orchestration pipeline."""
+    scan_data = context.findings.get("scan_results", [])
+    if scan_data:
+        found = scan_data[-1].get("found", [])
+        if found:
+            table = Table(title=f"Discovered Profiles ({len(found)})", box=box.ROUNDED, show_lines=True)
+            table.add_column("#", style="dim", width=4)
+            table.add_column("Platform", style="cyan", min_width=15)
+            table.add_column("URL", style="blue")
+            table.add_column("Category", style="yellow")
+            for i, s in enumerate(sorted(found, key=lambda x: x.get("category", "")), 1):
+                table.add_row(str(i), s["site"].title(), s["url"], s.get("category", ""))
+            console.print(table)
 
+    meta_list = context.findings.get("metadata", [])
+    if meta_list:
+        meta = meta_list[-1]
+        if meta.get("probable_name") or meta.get("all_locations"):
+            info = Table(show_header=False, box=None)
+            if meta.get("probable_name"):
+                info.add_row("[bold]Name:[/bold]", f"[green]{meta['probable_name']}[/green]")
+            if meta.get("all_locations"):
+                info.add_row("[bold]Locations:[/bold]", ", ".join(set(meta["all_locations"])))
+            console.print(Panel(info, title="[bold]Intelligence[/bold]", border_style="yellow"))
 
-def live_callback(result: SiteResult):
-    if result.found:
-        console.print(f"  [bold green]✓[/bold green] [cyan]{result.site:<20}[/cyan] [dim]{result.url}[/dim]")
+    ai_analysis = context.findings.get("ai_analysis", [])
+    if ai_analysis:
+        latest = ai_analysis[-1]
+        if "analysis" in latest:
+            console.print(Panel(latest["analysis"], title=f"[bold]AI Analysis ({latest.get('model', '?')})[/bold]", border_style="yellow"))
 
+    deep = context.findings.get("deep_recon", [])
+    if deep:
+        console.print("\n[bold]Deep Recon Results:[/bold]")
+        for alias_data in deep:
+            for alias, sites in alias_data.items():
+                console.print(f"  [cyan]@{alias}[/cyan] - found on {len(sites)} sites")
 
-def display_results(profile: PersonProfile):
-    summary = Table(show_header=False, box=None, padding=(0, 2))
-    summary.add_row("[bold]Target:[/bold]", f"[cyan]{profile.query}[/cyan]")
-    summary.add_row("[bold]Type:[/bold]", profile.query_type)
-    summary.add_row("[bold]Found:[/bold]", f"[green]{profile.total_found}[/green] / {profile.total_checked} sites")
-    summary.add_row("[bold]Confidence:[/bold]", f"[yellow]{profile.confidence_score:.0%}[/yellow]")
-    if profile.real_name_guess:
-        summary.add_row("[bold]Name:[/bold]", f"[green]{profile.real_name_guess}[/green]")
-    if profile.locations:
-        summary.add_row("[bold]Locations:[/bold]", ", ".join(set(profile.locations)))
-    console.print(Panel(summary, title="[bold]Summary[/bold]", border_style="cyan"))
-
-    if profile.sites_found:
-        table = Table(title="Discovered Profiles", box=box.ROUNDED, show_lines=True)
-        table.add_column("#", style="dim", width=4)
-        table.add_column("Platform", style="cyan", min_width=15)
-        table.add_column("URL", style="blue")
-        table.add_column("Category", style="yellow")
-        table.add_column("Metadata", style="dim", max_width=40)
-
-        for i, s in enumerate(sorted(profile.sites_found, key=lambda x: x.category), 1):
-            meta = "\n".join(f"{k}: {v}" for k, v in list((s.metadata or {}).items())[:3]) or "-"
-            table.add_row(str(i), s.site.title(), s.url, s.category, meta)
-        console.print(table)
-
-    if profile.aliases:
-        console.print(Panel(" | ".join(profile.aliases[:15]), title="[bold]Aliases[/bold]", border_style="magenta"))
-
-    if profile.social_graph:
-        console.print("\n[bold]Cross-References:[/bold]")
-        for uname, sources in profile.social_graph.items():
-            console.print(f"  [yellow]@{uname}[/yellow] - {', '.join(sources)}")
+    reports = context.findings.get("reports", [])
+    if reports:
+        for r in reports:
+            for fmt, path in r.items():
+                console.print(f"  [bold cyan]{fmt.upper()}:[/bold cyan] {path}")
 
 
 @click.group()
 def cli():
-    """Phantom Trace - OSINT People Search."""
+    """Phantom Trace - OSINT People Search with Agent Orchestration."""
     pass
 
 
 @cli.command()
 @click.argument("target")
-@click.option("--output", "-o", default=None)
-@click.option("--format", "-f", "fmt", default="all", type=click.Choice(["json", "html", "all"]))
-@click.option("--aliases", "-a", is_flag=True, help="Also scan generated aliases")
-@click.option("--category", "-c", default=None)
+@click.option("--mode", "-m", default="standard", type=click.Choice(["quick", "standard", "deep", "stealth"]))
 @click.option("--proxy", default=None)
-@click.option("--timeout", default=15, type=int)
-@click.option("--threads", default=80, type=int)
-@click.option("--ai", is_flag=True, help="Enable AI analysis")
-def username(target, output, fmt, aliases, category, proxy, timeout, threads, ai):
-    """Search by username across 40+ platforms."""
+def username(target, mode, proxy):
+    """Search by username with agent orchestration."""
     console.print(BANNER)
-    asyncio.run(_scan_username(target, output, fmt, aliases, category, proxy, timeout, threads, ai))
+    console.print(f"[bold]Mode: [cyan]{mode}[/cyan] | Target: [green]{target}[/green][/bold]\n")
+    asyncio.run(_run_pipeline(target, "username", mode))
 
 
 @cli.command()
 @click.argument("target")
-@click.option("--output", "-o", default=None)
-@click.option("--format", "-f", "fmt", default="all", type=click.Choice(["json", "html", "all"]))
-def email(target, output, fmt):
+@click.option("--mode", "-m", default="standard", type=click.Choice(["quick", "standard", "deep", "stealth"]))
+def email(target, mode):
     """Search by email address."""
     console.print(BANNER)
-    asyncio.run(_scan_email(target, output, fmt))
-
-
-@cli.command()
-@click.argument("target")
-def phone(target):
-    """Search by phone number."""
-    console.print(BANNER)
-    asyncio.run(_scan_phone(target))
+    prefix = target.split("@")[0]
+    console.print(f"[bold]Email: [green]{target}[/green] → scanning as username: [cyan]{prefix}[/cyan][/bold]\n")
+    asyncio.run(_run_pipeline(prefix, "email", mode))
 
 
 @cli.command()
 @click.argument("first_name")
 @click.argument("last_name")
 @click.option("--birth-year", default=None, type=int)
-@click.option("--output", "-o", default=None)
-@click.option("--format", "-f", "fmt", default="all", type=click.Choice(["json", "html", "all"]))
-def name(first_name, last_name, birth_year, output, fmt):
-    """Search by real name."""
+@click.option("--mode", "-m", default="standard", type=click.Choice(["quick", "standard", "deep", "stealth"]))
+def name(first_name, last_name, birth_year, mode):
+    """Search by real name (generates username permutations)."""
     console.print(BANNER)
-    asyncio.run(_scan_name(first_name, last_name, birth_year, output, fmt))
+    usernames = generate_from_real_name(first_name, last_name, birth_year)
+    console.print(f"[bold]Name: [green]{first_name} {last_name}[/green] → {len(usernames)} permutations[/bold]\n")
+
+    async def _run():
+        for uname in usernames[:5]:
+            console.print(f"\n[bold magenta]━━━ Scanning: {uname} ━━━[/bold magenta]")
+            await _run_pipeline(uname, "name", mode)
+
+    asyncio.run(_run())
 
 
-async def _scan_username(target, output, fmt, scan_aliases, category, proxy, timeout, threads, ai=False):
-    sites = load_sites()
-    if category:
-        sites = {k: v for k, v in sites.items() if v.get("category") == category}
+@cli.command()
+def providers():
+    """Check available AI providers."""
+    console.print(BANNER)
+    asyncio.run(_check_providers())
 
-    console.print(f"[bold]Checking [cyan]{len(sites)}[/cyan] sites for [green]{target}[/green]...[/bold]\n")
-    scanner = AsyncScanner(max_concurrent=threads, timeout=timeout, proxy=proxy)
-    results = await scanner.scan_all(target, sites, callback=live_callback)
 
-    profile = PersonProfile(query=target, query_type="username")
-    profile.sites_found = [r for r in results if r.found]
-    profile.sites_not_found = [r for r in results if not r.found]
-    profile.aliases = generate_aliases(target)
+async def _run_pipeline(target: str, target_type: str, mode: str):
+    """Execute the selected pipeline."""
+    context = create_context(target, target_type)
 
-    extractor = MetadataExtractor()
-    meta = extractor.process_results(results)
-    profile.real_name_guess = meta.get("probable_name")
-    profile.locations = meta.get("all_locations", [])
+    pipelines = {"quick": quick_scan_pipeline, "standard": standard_pipeline, "deep": deep_pipeline, "stealth": stealth_pipeline}
+    pipeline = pipelines[mode]()
 
-    graph = SocialGraphBuilder()
-    for r in profile.sites_found:
-        graph.add_profile(target, r.site, r.url, r.api_data)
-    profile.social_graph = graph.find_cross_references(results)
-    profile.confidence_score = calculate_confidence(profile)
+    result = await pipeline.execute(context)
 
     console.print()
-    display_results(profile)
-    _save(profile, target, output, fmt)
+    display_findings(result.context)
+
+    if not result.success:
+        failed = ", ".join(result.stages_failed)
+        console.print(f"\n[yellow]Warning: Some stages failed: {failed}[/yellow]")
 
 
-async def _scan_email(target, output, fmt):
-    import aiohttp
-    from src.modules.email_recon import check_email
-    from src.modules.breach_check import check_hibp
+async def _check_providers():
+    """Check and display available AI providers."""
+    from src.ai.router import create_default_router
+    router = create_default_router()
+    status = await router.check_availability()
 
-    async with aiohttp.ClientSession() as session:
-        email_result = await check_email(target, session)
-        breach_result = await check_hibp(target, session)
+    table = Table(title="AI Provider Status", box=box.ROUNDED)
+    table.add_column("Provider", style="cyan")
+    table.add_column("Status")
 
-    table = Table(title="Email Intelligence", box=box.ROUNDED)
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("Email", target)
-    table.add_row("Valid", str(email_result["valid"]))
-    table.add_row("Provider", email_result["provider"])
-    table.add_row("Gravatar", email_result.get("gravatar") or "N/A")
-    table.add_row("Services", ", ".join(email_result["services"]) or "None")
-    table.add_row("Breached", str(breach_result.get("breached", False)))
+    for name, available in status.items():
+        s = "[bold green]Available[/bold green]" if available else "[red]Unavailable[/red]"
+        table.add_row(name, s)
+
     console.print(table)
-
-    prefix = target.split("@")[0]
-    console.print(f"\n[bold]Also scanning username: [cyan]{prefix}[/cyan][/bold]\n")
-    await _scan_username(prefix, output, fmt, False, None, None, 15, 80)
-
-
-async def _scan_phone(target):
-    import aiohttp
-    from src.modules.phone_recon import check_phone, normalize_phone, detect_country
-
-    async with aiohttp.ClientSession() as session:
-        result = await check_phone(target, session)
-
-    table = Table(title="Phone Intelligence", box=box.ROUNDED)
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("Normalized", result["number"])
-    table.add_row("Country", result.get("country") or "Unknown")
-    table.add_row("Services", ", ".join(result.get("services", [])) or "None")
-    console.print(table)
-
-
-async def _scan_name(first, last, birth_year, output, fmt):
-    usernames = generate_from_real_name(first, last, birth_year)
-    console.print(f"[bold]Generated {len(usernames)} username permutations[/bold]\n")
-
-    sites = load_sites()
-    scanner = AsyncScanner(max_concurrent=80, timeout=15)
-    all_found = []
-
-    for uname in usernames[:8]:
-        console.print(f"[dim]--- Scanning: {uname} ---[/dim]")
-        results = await scanner.scan_all(uname, sites, callback=live_callback)
-        found = [r for r in results if r.found]
-        if found:
-            all_found.extend(found)
-
-    profile = PersonProfile(query=f"{first} {last}", query_type="name", sites_found=all_found, real_name_guess=f"{first} {last}")
-    profile.confidence_score = calculate_confidence(profile)
-    display_results(profile)
-    _save(profile, f"{first}_{last}", output, fmt)
-
-
-def _save(profile, target, output, fmt):
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base = output or f"output/{target}_{ts}"
-    if fmt in ("json", "all"):
-        export_json(profile, f"{base}.json")
-        console.print(f"\n[cyan]JSON:[/cyan] {base}.json")
-    if fmt in ("html", "all"):
-        export_html(profile, f"{base}.html")
-        console.print(f"[cyan]HTML:[/cyan] {base}.html")
 
 
 if __name__ == "__main__":
     cli()
-
-# AI analysis integration
-async def _run_ai_analysis(profile: PersonProfile):
-    """Run AI-powered analysis on the profile."""
-    from src.ai.router import create_default_router
-    from src.ai.analyzer import ProfileAnalyzer
-
-    console.print("\n[bold yellow]Running AI analysis...[/bold yellow]")
-    router = create_default_router()
-    status = await router.check_availability()
-
-    available = [k for k, v in status.items() if v]
-    if not available:
-        console.print("[red]No AI providers available. Install Ollama or set API keys.[/red]")
-        return
-
-    console.print(f"[dim]Using providers: {', '.join(available)}[/dim]")
-
-    analyzer = ProfileAnalyzer(router)
-    try:
-        result = await analyzer.analyze_profile(profile)
-        console.print(Panel(result["analysis"], title=f"[bold]AI Analysis ({result['model']})[/bold]", border_style="yellow"))
-    except Exception as e:
-        console.print(f"[red]AI analysis failed: {e}[/red]")
